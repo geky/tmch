@@ -1,0 +1,21 @@
+
+mv    [00 00 rd ra]  rd = ra
+sw    [00 01 rd ra]  rd, ra = ra, rd
+st    [00 10 rd ra]  mem[--ra], rd = rd, rd >> 8
+ld    [00 11 rd ra]  rd = rd << 8 | mem[ra++]
+
+beq   [01 00 rd ra]  rd = rd - mem[pc++] if ra == 0
+bne   [01 01 rd ra]  rd = rd - mem[pc++] if ra != 0
+bgt   [01 10 rd ra]  rd = rd - mem[pc++] if ra > 0
+blt   [01 11 rd ra]  rd = rd - mem[pc++] if ra < 0
+
+and   [10 00 rd ra]  rd = rd & ra
+xor   [10 01 rd ra]  rd = rd ^ ra
+add   [10 10 rd ra]  rd = rd + ra
+sub   [10 11 rd ra]  rd = rd - ra
+
+andi  [11 00 rd ra]  rd = rd & mem[ra++]
+xori  [11 01 rd ra]  rd = rd ^ mem[ra++]
+addi  [11 10 rd ra]  rd = rd + mem[ra++]
+subi  [11 11 rd ra]  rd = rd - mem[ra++]
+
