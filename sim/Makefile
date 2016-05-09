@@ -1,4 +1,4 @@
-TARGET = tsim
+TARGET = tmch-sim
 
 CC = gcc
 AR = ar

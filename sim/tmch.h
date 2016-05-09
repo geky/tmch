@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 // Terse machine state
-struct tmachine {
+struct tmch {
     unsigned bits;
     bool nz;
     unsigned regs[4];
@@ -13,13 +13,13 @@ struct tmachine {
 };
 
 // Machine lifetime
-void tmachine_create(struct tmachine *tm, unsigned bits);
-void tmachine_destroy(struct tmachine *tm);
+void tmch_create(struct tmch *tmch, unsigned bits);
+void tmch_destroy(struct tmch *tmch);
 
 // Step the machine
-void tmachine_step(struct tmachine *tm);
+void tmch_step(struct tmch *tmch);
 
 // Check if machine has been halted
-bool tmachine_halted(struct tmachine *tm);
+bool tmch_halted(struct tmch *tmch);
 
 #endif
