@@ -7,6 +7,7 @@
 // Terse machine state
 struct tmachine {
     unsigned bits;
+    bool nz;
     unsigned regs[4];
     struct mem mem;
 };

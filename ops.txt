@@ -1,21 +1,14 @@
 
-mv    [00 00 rd ra]  rd = ra
-sw    [00 01 rd ra]  rd, ra = ra, rd
-st    [00 10 rd ra]  mem[--ra], rd = rd, rd >> 8
-ld    [00 11 rd ra]  rd = rd << 8 | mem[ra++]
+op   encoding       if i == 0                   if i == 1
 
-beq   [01 00 rd ra]  rd = rd - mem[pc++] if ra == 0
-bne   [01 01 rd ra]  rd = rd - mem[pc++] if ra != 0
-bgt   [01 10 rd ra]  rd = rd - mem[pc++] if ra > 0
-blt   [01 11 rd ra]  rd = rd - mem[pc++] if ra < 0
+mv   [000 i rd ra]  rd = ra                     rd = rd<<8 | mem[ra++]
+st   [001 i rd ra]  mem[--rd], ra = ra, ra>>8   mem[--rd] = mem[ra++]
 
-and   [10 00 rd ra]  rd = rd & ra
-xor   [10 01 rd ra]  rd = rd ^ ra
-add   [10 10 rd ra]  rd = rd + ra
-sub   [10 11 rd ra]  rd = rd - ra
+csz  [010 i rd ra]  rd = rd - ra if ==0         rd = rd - mem[ra++] if ==0
+csn  [011 i rd ra]  rd = rd - ra if !=0         rd = rd - mem[ra++] if !=0
 
-andi  [11 00 rd ra]  rd = rd & mem[ra++]
-xori  [11 01 rd ra]  rd = rd ^ mem[ra++]
-addi  [11 10 rd ra]  rd = rd + mem[ra++]
-subi  [11 11 rd ra]  rd = rd - mem[ra++]
+and  [100 i rd ra]  rd = rd & ra                rd = rd & mem[ra++]
+xor  [101 i rd ra]  rd = rd ^ ra                rd = rd ^ mem[ra++]
+add  [110 i rd ra]  rd = rd + ra                rd = rd + mem[ra++]
+sub  [111 i rd ra]  rd = rd - ra                rd = rd - mem[ra++]
 

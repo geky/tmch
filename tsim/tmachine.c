@@ -21,132 +21,124 @@ bool tmachine_halted(struct tmachine *tm) {
 }
 
 enum tmachine_ops {
-    OP_MV,      // rd = ra
-    OP_SW,      // rd, ra = ra, rd
-    OP_ST,      // mem[--ra], rd = rd, rd >> 8
-    OP_LD,      // rd = rd << 8 | mem[ra++]
+    OP_MV  = 0 << 1,  // rd = ra                     rd = rd<<8 | mem[ra++]
+    OP_ST  = 1 << 1,  // mem[--rd], ra = ra, ra>>8   mem[--rd] = mem[ra++]
 
-    OP_BEQ,     // rd = rd - mem[pc++] if ra == 0
-    OP_BNE,     // rd = rd - mem[pc++] if ra != 0
-    OP_BGT,     // rd = rd - mem[pc++] if ra > 0
-    OP_BLT,     // rd = rd - mem[pc++] if ra < 0
+    OP_CZ  = 2 << 1, // rd = rd - ra if ==0         rd = rd - mem[ra++] if ==0
+    OP_CNZ = 3 << 1, // rd = rd - ra if !=0         rd = rd - mem[ra++] if !=0
 
-    OP_AND,     // rd = rd & ra
-    OP_XOR,     // rd = rd ^ ra
-    OP_ADD,     // rd = rd + ra
-    OP_SUB,     // rd = rd - ra
-
-    OP_ANDI,    // rd = rd & mem[ra++]
-    OP_XORI,    // rd = rd ^ mem[ra++]
-    OP_ADDI,    // rd = rd + mem[ra++]
-    OP_SUBI,    // rd = rd - mem[ra++]
+    OP_AND = 4 << 1, // rd = rd & ra                rd = rd & mem[ra++]
+    OP_XOR = 5 << 1, // rd = rd ^ ra                rd = rd ^ mem[ra++]
+    OP_ADD = 6 << 1, // rd = rd + ra                rd = rd + mem[ra++]
+    OP_SUB = 7 << 1, // rd = rd - ra                rd = rd - mem[ra++]
 };
 
 void tmachine_step(struct tmachine *tm) {
     uint8_t ins = mem_load(&tm->mem, tm->regs[3]);
     tm->regs[3] = mask(tm, tm->regs[3]+1);
 
-    uint8_t op = 0xf & (ins >> 4);
-    uint8_t rd = 0x3 & (ins >> 2);
-    uint8_t ra = 0x3 & (ins >> 0);
+    uint8_t op = (0xf0 & ins) >> 4;
+    uint8_t rd = (0x0c & ins) >> 2;
+    uint8_t ra = (0x03 & ins) >> 0;
 
     switch (op) {
-        case OP_MV: {
+        case OP_MV | 0: {
             tm->regs[rd] = tm->regs[ra];
         } break;
 
-        case OP_SW: {
-            unsigned temp = tm->regs[rd];
-            tm->regs[rd] = tm->regs[ra];
-            tm->regs[ra] = temp;
-        } break;
-
-        case OP_ST: {
-            tm->regs[ra] = mask(tm, tm->regs[ra]-1);
-            mem_store(&tm->mem, tm->regs[ra], tm->regs[rd]);
-            tm->regs[rd] = mask(tm, tm->regs[rd] >> 8);
-        } break;
-
-        case OP_LD: {
-            tm->regs[rd] = mask(tm, (tm->regs[rd] << 8) |
-                    mem_load(&tm->mem, tm->regs[ra]));
+        case OP_MV | 1: {
+            uint8_t t = mem_load(&tm->mem, tm->regs[ra]);
             tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+            tm->regs[rd] = mask(tm, (tm->regs[rd]<<8) | t);
         } break;
 
-        case OP_BEQ: {
-            if (tm->regs[ra] == 0) {
-                tm->regs[rd] = mask(tm, tm->regs[rd] -
-                        mem_load(&tm->mem, tm->regs[3]));
-                tm->regs[3] = mask(tm, tm->regs[3]+1);
+        case OP_ST | 0: {
+            tm->regs[rd] = mask(tm, tm->regs[rd]-1);
+            mem_store(&tm->mem, tm->regs[rd], tm->regs[ra]);
+            tm->regs[ra] = mask(tm, tm->regs[ra] >> 8);
+        } break;
+
+        case OP_ST | 1: {
+            uint8_t t = mem_load(&tm->mem, tm->regs[ra]);
+            tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+            tm->regs[rd] = mask(tm, tm->regs[rd]-1);
+            mem_store(&tm->mem, tm->regs[rd], t);
+        } break;
+
+        case OP_CZ | 0: {
+            if (!tm->nz) {
+                tm->regs[rd] = mask(tm, tm->regs[rd] - tm->regs[ra]);
             }
         } break;
 
-        case OP_BNE: {
-            if (tm->regs[ra] != 0) {
-                tm->regs[rd] = mask(tm, tm->regs[rd] -
-                        mem_load(&tm->mem, tm->regs[3]));
-                tm->regs[3] = mask(tm, tm->regs[3]+1);
+        case OP_CZ | 1: {
+            if (!tm->nz) {
+                int8_t t = mem_load(&tm->mem, tm->regs[ra]);
+                tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+                tm->regs[rd] = mask(tm, tm->regs[rd] - t);
             }
         } break;
 
-        case OP_BGT: {
-            if (tm->regs[ra] && !(tm->regs[ra] & (1 << (tm->bits-1)))) {
-                tm->regs[rd] = mask(tm, tm->regs[rd] -
-                        mem_load(&tm->mem, tm->regs[3]));
-                tm->regs[3] = mask(tm, tm->regs[3]+1);
+        case OP_CNZ | 0: {
+            if (tm->nz) {
+                tm->regs[rd] = mask(tm, tm->regs[rd] - tm->regs[ra]);
             }
         } break;
 
-        case OP_BLT: {
-            if (tm->regs[ra] & (1 << (tm->bits-1))) {
-                tm->regs[rd] = mask(tm, tm->regs[rd] -
-                        mem_load(&tm->mem, tm->regs[3]));
-                tm->regs[3] = mask(tm, tm->regs[3]+1);
+        case OP_CNZ | 1: {
+            if (tm->nz) {
+                int8_t t = mem_load(&tm->mem, tm->regs[ra]);
+                tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+                tm->regs[rd] = mask(tm, tm->regs[rd] - t);
             }
         } break;
 
-        case OP_AND: {
-            tm->regs[rd] = (tm->regs[rd] & ~0xff) |
-                    (tm->regs[rd] & (uint8_t)tm->regs[ra]);
+        case OP_AND | 0: {
+            tm->regs[rd] = tm->regs[rd] & tm->regs[ra];
+            tm->nz = tm->regs[rd];
         } break;
 
-        case OP_XOR: {
-            tm->regs[rd] = (tm->regs[rd] & ~0xff) |
-                    (tm->regs[rd] ^ (uint8_t)tm->regs[ra]);
-        } break;
-
-        case OP_ADD: {
-            tm->regs[rd] = mask(tm, tm->regs[rd] +
-                    (uint8_t)tm->regs[ra]);
-        } break;
-
-        case OP_SUB: {
-            tm->regs[rd] = mask(tm, tm->regs[rd] -
-                    (uint8_t)tm->regs[ra]);
-        } break;
-
-        case OP_ANDI: {
-            tm->regs[rd] = (tm->regs[rd] & ~0xff) |
-                    (tm->regs[rd] & mem_load(&tm->mem, tm->regs[ra]));
+        case OP_AND | 1: {
+            int8_t t = mem_load(&tm->mem, tm->regs[ra]);
             tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+            tm->regs[rd] = tm->regs[rd] & t;
+            tm->nz = tm->regs[rd];
         } break;
 
-        case OP_XORI: {
-            tm->regs[rd] = (tm->regs[rd] & ~0xff) |
-                    (tm->regs[rd] ^ mem_load(&tm->mem, tm->regs[ra]));
-            tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+        case OP_XOR | 0: {
+            tm->regs[rd] = tm->regs[rd] ^ tm->regs[ra];
+            tm->nz = tm->regs[rd];
         } break;
 
-        case OP_ADDI: {
-            tm->regs[rd] = mask(tm, tm->regs[rd] + 
-                    mem_load(&tm->mem, tm->regs[ra]));
+        case OP_XOR | 1: {
+            int8_t t = mem_load(&tm->mem, tm->regs[ra]);
             tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+            tm->regs[rd] = tm->regs[rd] ^ t;
+            tm->nz = tm->regs[rd];
         } break;
 
-        case OP_SUBI: {
-            tm->regs[rd] = mask(tm, tm->regs[rd] -
-                    mem_load(&tm->mem, tm->regs[ra]));
+        case OP_ADD | 0: {
+            tm->regs[rd] = mask(tm, tm->regs[rd] + tm->regs[ra]);
+            tm->nz = tm->regs[rd];
+        } break;
+
+        case OP_ADD | 1: {
+            int8_t t = mem_load(&tm->mem, tm->regs[ra]);
             tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+            tm->regs[rd] = mask(tm, tm->regs[rd] + t);
+            tm->nz = tm->regs[rd];
+        } break;
+
+        case OP_SUB | 0: {
+            tm->regs[rd] = mask(tm, tm->regs[rd] - tm->regs[ra]);
+            tm->nz = tm->regs[rd];
+        } break;
+
+        case OP_SUB | 1: {
+            int8_t t = mem_load(&tm->mem, tm->regs[ra]);
+            tm->regs[ra] = mask(tm, tm->regs[ra]+1);
+            tm->regs[rd] = mask(tm, tm->regs[rd] - t);
+            tm->nz = tm->regs[rd];
         } break;
     }
 }
