@@ -4,8 +4,8 @@ op   encoding       if i == 0                   if i == 1
 mv   [000 i rd ra]  rd = ra                     rd = rd<<8 | mem[ra++]
 st   [001 i rd ra]  mem[--rd], ra = ra, ra>>8   mem[--rd] = mem[ra++]
 
-cz   [010 i rd ra]  rd = rd - ra if ==0         rd = rd - mem[ra++] if ==0
-cnz  [011 i rd ra]  rd = rd - ra if !=0         rd = rd - mem[ra++] if !=0
+cz   [010 i rd ra]  rd = rd - ra if a==0        rd = rd - mem[ra++] if a==0
+cnz  [011 i rd ra]  rd = rd - ra if a!=0        rd = rd - mem[ra++] if a!=0
 
 and  [100 i rd ra]  rd = rd & ra                rd = rd & mem[ra++]
 xor  [101 i rd ra]  rd = rd ^ ra                rd = rd ^ mem[ra++]
