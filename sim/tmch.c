@@ -66,29 +66,29 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_CZ | 0: {
-            if (tmch->regs[0] == 0) {
+            if (!tmch->regs[0]) {
                 tmch->regs[rd] = mask(tmch, tmch->regs[rd] - tmch->regs[ra]);
             }
         } break;
 
         case OP_CZ | 1: {
-            if (tmch->regs[0] == 0) {
-                int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
-                tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
+            int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
+            if (!tmch->regs[0]) {
                 tmch->regs[rd] = mask(tmch, tmch->regs[rd] - t);
             }
         } break;
 
         case OP_CNZ | 0: {
-            if (tmch->regs[0] != 0) {
+            if (tmch->regs[0]) {
                 tmch->regs[rd] = mask(tmch, tmch->regs[rd] - tmch->regs[ra]);
             }
         } break;
 
         case OP_CNZ | 1: {
-            if (tmch->regs[0] != 0) {
-                int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
-                tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
+            int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
+            if (tmch->regs[0]) {
                 tmch->regs[rd] = mask(tmch, tmch->regs[rd] - t);
             }
         } break;
