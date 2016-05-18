@@ -1,7 +1,6 @@
 module Asm where
 
 import Prelude hiding (error)
-import Data.Bifunctor
 import Data.Char
 import Data.Word
 import Data.Maybe
@@ -71,5 +70,5 @@ assemble psts = mem 0 <$> (concat <$> psds)
   where
     (ps, ts) = unzip psts
     ds = map (uncurry $ asmIns (labels ts)) (address ts)
-    psds = zipWithM (first . msg) ps ds
+    psds = zipWithM resultMsg ps ds
 
