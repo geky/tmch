@@ -5,6 +5,7 @@ import Data.Int
 import Data.Word
 import Data.Bits
 import Data.Char
+import Control.Applicative
 import Result
 
 
@@ -17,12 +18,21 @@ data Reg = A | B | SP | PC
   deriving (Show, Enum)
 
 
+isImm :: Arg -> Bool
+isImm = \case
+    Imm _ -> True
+    _     -> False
+
+isReg :: Arg -> Bool
+isReg = \case
+    Reg _ -> True
+    _     -> False
+
 dst :: Reg -> Word8
 dst = (`shift` 2) . fromIntegral . fromEnum
 
 src :: Reg -> Word8
 src = fromIntegral . fromEnum
-
 
 i8 :: Int -> Result String [Word8]
 i8 i
@@ -54,91 +64,92 @@ reg = \case
 
     r -> error ("unknown register \"" ++ r ++ "\"")
 
-ins :: String -> [Arg] -> Result String [Word8]
-ins op args = case (prefix op, suffix op, args) of
-    ("mv",  1, [Reg rd, Reg ra]) -> ok [0x00 .|. dst rd .|. src ra]
-    ("mvi", 1, [Reg rd, Reg ra]) -> ok [0x10 .|. dst rd .|. src ra]
-    ("ld",  1, [Reg rd, Reg ra]) -> ok [0x10 .|. dst rd .|. src ra]
-    ("st",  1, [Reg rd, Reg ra]) -> ok [0x20 .|. dst rd .|. src ra]
-    ("sti", 1, [Reg rd, Reg ra]) -> ok [0x30 .|. dst rd .|. src ra]
+ins :: Int -> String -> [Arg] -> Result String [Word8]
+ins pc = curry $ \case
+    ("mv",  [Reg rd, Reg ra]) -> ok [0x00 .|. dst rd .|. src ra]
+    ("mvi", [Reg rd, Reg ra]) -> ok [0x10 .|. dst rd .|. src ra]
+    ("ld",  [Reg rd, Reg ra]) -> ok [0x10 .|. dst rd .|. src ra]
+    ("st",  [Reg rd, Reg ra]) -> ok [0x20 .|. dst rd .|. src ra]
+    ("sti", [Reg rd, Reg ra]) -> ok [0x30 .|. dst rd .|. src ra]
 
-    ("cz",   1, [Reg rd, Reg ra]) -> ok [0x40 .|. dst rd .|. src ra]
-    ("czi",  1, [Reg rd, Reg ra]) -> ok [0x50 .|. dst rd .|. src ra]
-    ("cnz",  1, [Reg rd, Reg ra]) -> ok [0x60 .|. dst rd .|. src ra]
-    ("cnzi", 1, [Reg rd, Reg ra]) -> ok [0x70 .|. dst rd .|. src ra]
+    ("cz",   [Reg rd, Reg ra]) -> ok [0x40 .|. dst rd .|. src ra]
+    ("czi",  [Reg rd, Reg ra]) -> ok [0x50 .|. dst rd .|. src ra]
+    ("cnz",  [Reg rd, Reg ra]) -> ok [0x60 .|. dst rd .|. src ra]
+    ("cnzi", [Reg rd, Reg ra]) -> ok [0x70 .|. dst rd .|. src ra]
 
-    ("and",  1, [Reg rd, Reg ra]) -> ok [0x80 .|. dst rd .|. src ra]
-    ("andi", 1, [Reg rd, Reg ra]) -> ok [0x90 .|. dst rd .|. src ra]
-    ("xor",  1, [Reg rd, Reg ra]) -> ok [0xa0 .|. dst rd .|. src ra]
-    ("xori", 1, [Reg rd, Reg ra]) -> ok [0xb0 .|. dst rd .|. src ra]
-    ("add",  1, [Reg rd, Reg ra]) -> ok [0xc0 .|. dst rd .|. src ra]
-    ("addi", 1, [Reg rd, Reg ra]) -> ok [0xd0 .|. dst rd .|. src ra]
-    ("sub",  1, [Reg rd, Reg ra]) -> ok [0xe0 .|. dst rd .|. src ra]
-    ("subi", 1, [Reg rd, Reg ra]) -> ok [0xf0 .|. dst rd .|. src ra]
+    ("and",  [Reg rd, Reg ra]) -> ok [0x80 .|. dst rd .|. src ra]
+    ("andi", [Reg rd, Reg ra]) -> ok [0x90 .|. dst rd .|. src ra]
+    ("xor",  [Reg rd, Reg ra]) -> ok [0xa0 .|. dst rd .|. src ra]
+    ("xori", [Reg rd, Reg ra]) -> ok [0xb0 .|. dst rd .|. src ra]
+    ("add",  [Reg rd, Reg ra]) -> ok [0xc0 .|. dst rd .|. src ra]
+    ("addi", [Reg rd, Reg ra]) -> ok [0xd0 .|. dst rd .|. src ra]
+    ("sub",  [Reg rd, Reg ra]) -> ok [0xe0 .|. dst rd .|. src ra]
+    ("subi", [Reg rd, Reg ra]) -> ok [0xf0 .|. dst rd .|. src ra]
 
-    ("mv",  1, [rd, Imm i]) -> concatM [ins "mvi"  [rd, Reg PC], u8 i]
-    ("st",  1, [rd, Imm i]) -> concatM [ins "sti"  [rd, Reg PC], u8 i]
-    ("cz",  1, [rd, Imm i]) -> concatM [ins "czi"  [rd, Reg PC], i8 i]
-    ("cnz", 1, [rd, Imm i]) -> concatM [ins "cnzi" [rd, Reg PC], i8 i]
-    ("and", 1, [rd, Imm i]) -> concatM [ins "andi" [rd, Reg PC], u8 i]
-    ("xor", 1, [rd, Imm i]) -> concatM [ins "xori" [rd, Reg PC], u8 i]
-    ("add", 1, [rd, Imm i]) -> concatM [ins "addi" [rd, Reg PC], i8 i]
-    ("sub", 1, [rd, Imm i]) -> concatM [ins "subi" [rd, Reg PC], i8 i]
+    ("mv",  [rd, Imm i]) -> liftA2 (++) (ins pc "mvi"  [rd, Reg PC]) (u8 i)
+    ("st",  [rd, Imm i]) -> liftA2 (++) (ins pc "sti"  [rd, Reg PC]) (u8 i)
+    ("cz",  [rd, Imm i]) -> liftA2 (++) (ins pc "czi"  [rd, Reg PC]) (i8 i)
+    ("cnz", [rd, Imm i]) -> liftA2 (++) (ins pc "cnzi" [rd, Reg PC]) (i8 i)
+    ("and", [rd, Imm i]) -> liftA2 (++) (ins pc "andi" [rd, Reg PC]) (u8 i)
+    ("xor", [rd, Imm i]) -> liftA2 (++) (ins pc "xori" [rd, Reg PC]) (u8 i)
+    ("add", [rd, Imm i]) -> liftA2 (++) (ins pc "addi" [rd, Reg PC]) (i8 i)
+    ("sub", [rd, Imm i]) -> liftA2 (++) (ins pc "subi" [rd, Reg PC]) (i8 i)
 
-    ("mv",  n, [rd, Imm i])  -> rep n "mv"  [rd, Imm i]
-    ("st",  n, [rd, Imm i])  -> rep n "st"  [rd, Imm i]
-    ("mvi", n, [rd, Reg ra]) -> rep n "mvi" [rd, Reg ra]
-    ("ld",  n, [rd, Reg ra]) -> rep n "ld"  [rd, Reg ra]
-    ("st",  n, [rd, Reg ra]) -> rep n "st"  [rd, Reg ra]
-    ("sti", n, [rd, Reg ra]) -> rep n "sti" [rd, Reg ra]
+    ("mv",  rd:is) | all isImm is -> inss pc $ map (\i -> ("mv",  [rd, i])) is
+    ("mv",  rd:is) | all isImm is -> inss pc $ map (\i -> ("mv",  [rd, i])) is
+    ("st",  rd:is) | all isImm is -> inss pc $ map (\i -> ("st",  [rd, i])) is
+    ("mvi", rd:rs) | all isReg rs -> inss pc $ map (\r -> ("mvi", [rd, r])) rs
+    ("ld",  rd:rs) | all isReg rs -> inss pc $ map (\r -> ("ld",  [rd, r])) rs
+    ("st",  rd:rs) | all isReg rs -> inss pc $ map (\r -> ("st",  [rd, r])) rs
+    ("sti", rd:rs) | all isReg rs -> inss pc $ map (\r -> ("sti", [rd, r])) rs
 
-    ("push", n, [Imm i])  -> rep n "st" ([Reg SP, Imm i])
-    ("push", n, [Reg rd]) -> rep n "st" ([Reg SP, Reg rd])
-    ("pop",  n, [Reg rd]) -> rep n "ld" ([Reg rd, Reg SP])
+    ("push", is) | all isImm is -> inss pc $ map (\i -> ("st", [Reg SP, i])) is
+    ("push", rs) | all isReg rs -> inss pc $ map (\r -> ("st", [Reg SP, r])) rs
+    ("pop",  rs) | all isReg rs -> inss pc $ map (\r -> ("ld", [r, Reg SP])) rs
+    ("pop",  rs) | all isReg rs -> inss pc $ map (\r -> ("ld", [r, Reg SP])) rs
 
-    ("b",   1, [Imm i]) -> ins "sub" [Reg PC, Imm (negate i)]
-    ("bz",  1, [Imm i]) -> ins "cz"  [Reg PC, Imm (negate i)]
-    ("bnz", 1, [Imm i]) -> ins "cnz" [Reg PC, Imm (negate i)]
+    ("b",   [Imm i]) -> ins pc "sub" [Reg PC, Imm (negate (i-(pc+2)))]
+    ("bz",  [Imm i]) -> ins pc "cz"  [Reg PC, Imm (negate (i-(pc+2)))]
+    ("bnz", [Imm i]) -> ins pc "cnz" [Reg PC, Imm (negate (i-(pc+2)))]
 
-    ("call", 1, [Reg A]) -> concatM 
-        [ ins "mv" [Reg B, Reg PC]
-        , ins "mv" [Reg PC, Reg A]
+    ("call", [Reg A]) -> inss pc
+        [ ("mv", [Reg B, Reg PC])
+        , ("mv", [Reg PC, Reg A])
         ]
-    ("call", 1, [Reg r]) -> concatM 
-        [ ins "mv" [Reg A, Reg r]
-        , ins "call" [Reg A]
+    ("call", [Reg r]) -> inss pc
+        [ ("mv", [Reg A, Reg r])
+        , ("call", [Reg A])
         ]
-    ("call", n, [Imm i]) -> concatM
-        [ rep n "mv" [Reg A, Imm i]
-        , ins "call" [Reg A]
+    ("call", is) | all isImm is -> inss pc
+        [ ("mv", Reg A:is)
+        , ("call", [Reg A])
         ]
-    ("ret", 1, []) -> concatM
-        [ ins "add" [Reg B, Imm 1]
-        , ins "mv" [Reg PC, Reg B]
+    ("ret", []) -> inss pc
+        [ ("add", [Reg B, Imm 1])
+        , ("mv", [Reg PC, Reg B])
         ]
 
-    ("nop",  1, []) -> ins "mv" [Reg A, Reg A]
-    ("halt", 1, []) -> ins "b" [Imm (-2)]
-    ("swi",  1, [Imm i]) -> concatM [ins "sti" [Reg PC, Reg PC], u8 i]
+    ("nop",  []) -> ins pc "mv" [Reg A, Reg A]
+    ("halt", []) -> ins pc "b" [Imm (-2)]
+    ("swi",  [Imm i]) -> ins pc "st" [Reg PC, Imm i]
 
-    (_, _, _) -> error ("invalid instruction \"" ++ op ++ "\"")
-  where
-    concatM = fmap concat . sequence
-    
-    prefix s
-        | length s > 0 && isDigit (last s) = init s
-        | otherwise = s
+    (op, args) | not (null op) && isDigit (last op) && not (null args) ->
+        case last args of
+            Imm i -> ins pc op' (init args ++ shifts n' i)
+            Reg r -> ins pc op' (init args ++ replicate n' (Reg r))
+          where 
+            (op', n') = (init op, digitToInt (last op))
+            shifts n = map Imm 
+                . (\(s:ss) -> s : map (0xff .&.) ss)
+                . reverse . take n . iterate (`shift` (-8))
 
-    suffix s
-        | length s > 0 && isDigit (last s) = digitToInt (last s)
-        | otherwise = 1
+    (op, _) -> error ("invalid instruction \"" ++ op ++ "\"")
 
-    rep n op args = case last args of
-        Imm i -> concatM
-            $ map (\i -> ins op (init args ++ [Imm i]))
-            $ (\s -> head s : map (0xff .&.) (tail s))
-            $ reverse
-            $ take n
-            $ iterate (`shift` (-8)) i
-        Reg _ -> concatM
-            $ replicate n (ins op args)
+inss :: Int -> [(String, [Arg])] -> Result String [Word8]
+inss pc = \case
+    (op, arg):is -> liftA2 (++) i (inss (pc + length i) is)
+      where i = ins pc op arg
+    _            -> ok []
+
+
+
