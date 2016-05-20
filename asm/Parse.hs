@@ -62,14 +62,14 @@ num = do
         '0':b:_ | elem b "xX" -> accept 2 16
         _                     -> accept 0 10
     digits <- many1 (digit base)
-    return $ sign (foldr1 (\a b -> a*base + b) digits)
+    return $ sign (foldl1 (\a b -> a*base + b) digits)
 
 string :: Char -> Rule Char String
 string q = match q *> many (char q) <* match q
   where
     escape count base = do
         digits <- replicateM count (digit base)
-        return $ chr (foldr (\a b -> a*base + b) 0 digits)
+        return $ chr (foldl1 (\a b -> a*base + b) digits)
 
     char q = rule $ \case
         '\\':'\\':_  -> accept 2 '\\'

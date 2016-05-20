@@ -18,5 +18,6 @@ main = do
         file:_ -> do
             fdat <- readFile file
             ts <- checkMsg $ parse file fdat
+            --putStr (show ts)
             result <- checkMsg $ assemble ts
             putStr (toHex result)
