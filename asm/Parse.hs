@@ -4,6 +4,7 @@ import Prelude hiding (break, return)
 import Control.Applicative
 import Control.Monad
 import Data.Char
+import Data.Maybe
 import Rule
 import Result
 import Pos
@@ -11,44 +12,26 @@ import Pos
 
 data Token
     = Label String
+    | Pseudo String [Either String Int]
     | Ins String [Either String Int]
-    | String String
-    | Byte Int
   deriving Show
 
 
 symbol :: Rule Char String
-symbol = many1 (matchIf isAlphaNum)
+symbol = rule $ \case
+    c:_ | isSymbolPrefix c -> many1 (matchIf isSymbol)
+    _                      -> reject
+  where
+    isSymbolPrefix c = isAlpha c || c == '_'
+    isSymbol c = isSymbolPrefix c || isDigit c
+
+ws :: Rule Char String
+ws = many (matchIf isWs)
+  where isWs c = c /= '\n' && isSpace c
 
 digit :: Int -> Rule Char Int
 digit base = fromIntegral . digitToInt <$> matchIf isBase
-  where isBase c = isDigit c && digitToInt c < base
-
-ws :: Rule Char String
-ws = many1 (matchIf isWs)
-  where isWs c = c /= '\n' && isSpace c
-
-nl :: Rule Char String
-nl = many ws *> optional comment *> matches "\n"
-  where comment = matches ";" *> many (matchIf (/= '\n'))
-
-token :: String -> Rule Char String
-token s = optional ws *> matches s <* optional ws
-
-args :: Rule Char [Either String Int]
-args = ws *> delimited arg (token ",") <|> pure []
-  where
-    arg = rule $ \case
-        c:_ | isAlpha c -> Left <$> symbol
-        c:_ | isDigit c -> Right <$> num
-        _               -> reject
-
-op :: Rule Char Token
-op = do
-    s <- symbol
-    rule $ \case
-        ':':_ -> accept 1 $ Label s
-        _     -> Ins s <$> args <* nl
+  where isBase c = isHexDigit c && digitToInt c < base
 
 num :: Rule Char Int
 num = do
@@ -90,23 +73,30 @@ string q = match q *> many (char q) <* match q
         c:_ | c /= q -> accept 1 c
         _            -> reject
 
-literal :: Rule Char Token
-literal = rule $ \case
-    '\"':_          -> String <$> string '\"'
-    '\'':_          -> String <$> string '\''
-    '-':_           -> Byte <$> num
-    c:_ | isDigit c -> Byte <$> num
-    _               -> reject
 
-tokenize :: Rule Char Token
-tokenize = rule $ \case
-    c:_ | isAlpha c                  -> op
-    c:_ | elem c "\"\'" || isDigit c -> literal
-    _                                -> reject
+label :: Rule Char Token
+label = try (Label <$> symbol <* match ':' <* ws)
 
-tokens :: Rule (Pos, Char) [(Pos, Token)]
-tokens = separated (overM tokenize) (overM (ws <|> nl))
+op :: Rule Char Token
+op = op <* ws <*> delimited (arg <* ws) (match ',' <* ws)
+  where 
+    op = rule $ \case
+        '.':_ -> Pseudo <$ match '.' <*> symbol
+        _     -> Ins <$> symbol
+    arg = rule $ \case
+        c:_ | isSymbolPrefix c -> Left <$> symbol
+        c:_ | isDigit c        -> Right <$> num
+        _                      -> reject
+      where isSymbolPrefix c = isAlpha c || c == '_'
+
+term :: Rule Char ()
+term = void $ optional comment *> match '\n'
+  where comment = match ';' *> many (matchIf (/= '\n'))
+
+line :: Rule Char [Token]
+line = catMaybes <$ ws <*> mapM optional [label, op] <* term
 
 parse :: FilePath -> String -> Result Msg [(Pos, Token)]
-parse fp = expect fp . run tokens . position fp
+parse fp = expect fp . run parser . position fp
+  where parser = concat <$> many (sequence <$> overM line)
 

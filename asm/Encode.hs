@@ -128,7 +128,7 @@ ins op args pc = case (op, args) of
         ]
 
     ("nop",  []) -> ins "mv" [Reg A, Reg A] pc
-    ("halt", []) -> ins "b" [Imm (-2)] pc
+    ("halt", []) -> ins "sub" [Reg PC, Imm (-2)] pc
     ("swi",  [Imm i]) -> ins "st" [Reg PC, Imm i] pc
 
     (op, _) -> error ("invalid instruction \"" ++ op ++ "\"")

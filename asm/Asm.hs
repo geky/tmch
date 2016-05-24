@@ -1,7 +1,6 @@
 module Asm where
 
 import Prelude hiding (error)
-import Data.Char
 import Data.Word
 import Data.Maybe
 import Data.Bifunctor
@@ -17,7 +16,7 @@ import Mem
 type Label = String
 
 
-asmArg 
+asmArg
     :: (Label -> Result String Int)
     -> Either String Int -> Result String Arg
 asmArg l arg = case arg of
@@ -30,9 +29,9 @@ asmIns
     :: (Label -> Result String Int)
     -> Int -> Token -> Result String [Word8]
 asmIns l pc = \case
+    Pseudo "byte" [Right i] -> u8 i
+    Pseudo op _ -> error ("unknown pseudo op \"" ++ op ++ "\"")
     Label _     -> ok []
-    Byte b      -> u8 b
-    String s    -> concat <$> mapM (u8 . ord) s
     Ins op args -> do
         args <- mapM (asmArg l) args
         ins op args pc
@@ -42,12 +41,12 @@ asmLabel ls l = case lookup l ls of
     Just offset -> ok offset
     _           -> error ("unknown label \"" ++ l ++ "\"")
 
-
 address :: Int -> [Token] -> [(Int, Token)]
 address pc = \case
+    (Pseudo "org" [Right org]:ts) -> address org ts
     (t:ts) -> (pc, t) : address (pc + length ds) ts
-      where ds = force (asmIns (const $ ok 0) pc t <|> pure [])
-    _      -> []
+      where ds = force (asmIns (const (ok pc)) pc t <|> pure [])
+    _  -> []
 
 labels :: [Token] -> [(Label, Int)]
 labels ts = mapMaybe label (address 0 ts)
@@ -58,9 +57,10 @@ labels ts = mapMaybe label (address 0 ts)
 
 assemble :: [(Pos, Token)] -> Result Msg Mem8
 assemble ts
-    = fmap (mem 0 . concat)
+    = fmap (foldl merge zeros)
     $ uncurry (zipWithM resultMsg)
-    $ second (map (uncurry $ asmIns (asmLabel ls)) . address 0)
+    $ second (map (\(pc, t) -> mem pc <$> asmIns (asmLabel ls) pc t))
+    $ second (address 0)
     $ unzip ts
   where
     ls = labels (map snd ts)
