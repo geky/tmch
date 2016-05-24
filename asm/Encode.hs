@@ -4,7 +4,6 @@ import Prelude hiding (error)
 import Data.Int
 import Data.Word
 import Data.Bits
-import Data.Char
 import Control.Applicative
 import Result
 
@@ -64,8 +63,8 @@ reg = \case
 
     r -> error ("unknown register \"" ++ r ++ "\"")
 
-ins :: Int -> String -> [Arg] -> Result String [Word8]
-ins pc = curry $ \case
+ins :: String -> [Arg] -> Int -> Result String [Word8]
+ins op args pc = case (op, args) of
     ("mv",  [Reg rd, Reg ra]) -> ok [0x00 .|. dst rd .|. src ra]
     ("mvi", [Reg rd, Reg ra]) -> ok [0x10 .|. dst rd .|. src ra]
     ("ld",  [Reg rd, Reg ra]) -> ok [0x10 .|. dst rd .|. src ra]
@@ -86,70 +85,63 @@ ins pc = curry $ \case
     ("sub",  [Reg rd, Reg ra]) -> ok [0xe0 .|. dst rd .|. src ra]
     ("subi", [Reg rd, Reg ra]) -> ok [0xf0 .|. dst rd .|. src ra]
 
-    ("mv",  [rd, Imm i]) -> liftA2 (++) (ins pc "mvi"  [rd, Reg PC]) (u8 i)
-    ("st",  [rd, Imm i]) -> liftA2 (++) (ins pc "sti"  [rd, Reg PC]) (u8 i)
-    ("cz",  [rd, Imm i]) -> liftA2 (++) (ins pc "czi"  [rd, Reg PC]) (i8 i)
-    ("cnz", [rd, Imm i]) -> liftA2 (++) (ins pc "cnzi" [rd, Reg PC]) (i8 i)
-    ("and", [rd, Imm i]) -> liftA2 (++) (ins pc "andi" [rd, Reg PC]) (u8 i)
-    ("xor", [rd, Imm i]) -> liftA2 (++) (ins pc "xori" [rd, Reg PC]) (u8 i)
-    ("add", [rd, Imm i]) -> liftA2 (++) (ins pc "addi" [rd, Reg PC]) (i8 i)
-    ("sub", [rd, Imm i]) -> liftA2 (++) (ins pc "subi" [rd, Reg PC]) (i8 i)
+    ("mv",  [rd, Imm i]) -> comp pc [ins "mvi"  [rd, Reg PC], const (u8 i)]
+    ("st",  [rd, Imm i]) -> comp pc [ins "sti"  [rd, Reg PC], const (u8 i)]
+    ("cz",  [rd, Imm i]) -> comp pc [ins "czi"  [rd, Reg PC], const (i8 i)]
+    ("cnz", [rd, Imm i]) -> comp pc [ins "cnzi" [rd, Reg PC], const (i8 i)]
+    ("and", [rd, Imm i]) -> comp pc [ins "andi" [rd, Reg PC], const (u8 i)]
+    ("xor", [rd, Imm i]) -> comp pc [ins "xori" [rd, Reg PC], const (u8 i)]
+    ("add", [rd, Imm i]) -> comp pc [ins "addi" [rd, Reg PC], const (i8 i)]
+    ("sub", [rd, Imm i]) -> comp pc [ins "subi" [rd, Reg PC], const (i8 i)]
 
-    ("mv",  rd:is) | all isImm is -> inss pc $ map (\i -> ("mv",  [rd, i])) is
-    ("mv",  rd:is) | all isImm is -> inss pc $ map (\i -> ("mv",  [rd, i])) is
-    ("st",  rd:is) | all isImm is -> inss pc $ map (\i -> ("st",  [rd, i])) is
-    ("mvi", rd:rs) | all isReg rs -> inss pc $ map (\r -> ("mvi", [rd, r])) rs
-    ("ld",  rd:rs) | all isReg rs -> inss pc $ map (\r -> ("ld",  [rd, r])) rs
-    ("st",  rd:rs) | all isReg rs -> inss pc $ map (\r -> ("st",  [rd, r])) rs
-    ("sti", rd:rs) | all isReg rs -> inss pc $ map (\r -> ("sti", [rd, r])) rs
+    ("mvw",  [rd, Imm i]) -> word pc (\i -> ins "mv"  [rd, i]) (Imm i)
+    ("stw",  [rd, Imm i]) -> word pc (\i -> ins "st"  [rd, i]) (Imm i)
+    ("mviw", [rd, Reg r]) -> word pc (\r -> ins "mvi" [rd, r]) (Reg r)
+    ("ldw",  [rd, Reg r]) -> word pc (\r -> ins "ld"  [rd, r]) (Reg r)
+    ("stw",  [rd, Reg r]) -> word pc (\r -> ins "st"  [rd, r]) (Reg r)
+    ("stiw", [rd, Reg r]) -> word pc (\r -> ins "sti" [rd, r]) (Reg r)
 
-    ("push", is) | all isImm is -> inss pc $ map (\i -> ("st", [Reg SP, i])) is
-    ("push", rs) | all isReg rs -> inss pc $ map (\r -> ("st", [Reg SP, r])) rs
-    ("pop",  rs) | all isReg rs -> inss pc $ map (\r -> ("ld", [r, Reg SP])) rs
-    ("pop",  rs) | all isReg rs -> inss pc $ map (\r -> ("ld", [r, Reg SP])) rs
+    ("push",  [r]) -> ins "st"  [Reg SP, r] pc
+    ("pop",   [r]) -> ins "ld"  [r, Reg SP] pc
+    ("pushw", [r]) -> ins "stw" [Reg SP, r] pc
+    ("popw",  [r]) -> ins "ldw" [r, Reg SP] pc
 
-    ("b",   [Imm i]) -> ins pc "sub" [Reg PC, Imm (negate (i-(pc+2)))]
-    ("bz",  [Imm i]) -> ins pc "cz"  [Reg PC, Imm (negate (i-(pc+2)))]
-    ("bnz", [Imm i]) -> ins pc "cnz" [Reg PC, Imm (negate (i-(pc+2)))]
+    ("b",   [Imm i]) -> ins "sub" [Reg PC, Imm (negate (i-(pc+2)))] pc
+    ("bz",  [Imm i]) -> ins "cz"  [Reg PC, Imm (negate (i-(pc+2)))] pc
+    ("bnz", [Imm i]) -> ins "cnz" [Reg PC, Imm (negate (i-(pc+2)))] pc
 
-    ("call", [Reg A]) -> inss pc
-        [ ("mv", [Reg B, Reg PC])
-        , ("mv", [Reg PC, Reg A])
+    ("call", [Reg A]) -> comp pc
+        [ ins "mv" [Reg B, Reg PC]
+        , ins "mv" [Reg PC, Reg A]
         ]
-    ("call", [Reg r]) -> inss pc
-        [ ("mv", [Reg A, Reg r])
-        , ("call", [Reg A])
+    ("call", [r]) -> comp pc
+        [ ins "mv" [Reg A, r]
+        , ins "call" [Reg A]
         ]
-    ("call", is) | all isImm is -> inss pc
-        [ ("mv", Reg A:is)
-        , ("call", [Reg A])
+    ("callw", [r]) -> comp pc
+        [ ins "mvw" [Reg A, r]
+        , ins "call" [Reg A]
         ]
-    ("ret", []) -> inss pc
-        [ ("add", [Reg B, Imm 1])
-        , ("mv", [Reg PC, Reg B])
+    ("ret", []) -> comp pc
+        [ ins "add" [Reg B, Imm 1]
+        , ins "mv" [Reg PC, Reg B]
         ]
 
-    ("nop",  []) -> ins pc "mv" [Reg A, Reg A]
-    ("halt", []) -> ins pc "b" [Imm (-2)]
-    ("swi",  [Imm i]) -> ins pc "st" [Reg PC, Imm i]
-
-    (op, args) | not (null op) && isDigit (last op) && not (null args) ->
-        case last args of
-            Imm i -> ins pc op' (init args ++ shifts n' i)
-            Reg r -> ins pc op' (init args ++ replicate n' (Reg r))
-          where 
-            (op', n') = (init op, digitToInt (last op))
-            shifts n = map Imm 
-                . (\(s:ss) -> s : map (0xff .&.) ss)
-                . reverse . take n . iterate (`shift` (-8))
+    ("nop",  []) -> ins "mv" [Reg A, Reg A] pc
+    ("halt", []) -> ins "b" [Imm (-2)] pc
+    ("swi",  [Imm i]) -> ins "st" [Reg PC, Imm i] pc
 
     (op, _) -> error ("invalid instruction \"" ++ op ++ "\"")
+  where
+    comp pc = \case
+        f:fs -> liftA2 (++) (f pc) (comp (pc + length (f pc)) fs)
+        _    -> pure []
 
-inss :: Int -> [(String, [Arg])] -> Result String [Word8]
-inss pc = \case
-    (op, arg):is -> liftA2 (++) i (inss (pc + length i) is)
-      where i = ins pc op arg
-    _            -> ok []
+    word pc f = comp pc . map f . \case
+        Imm i -> shifts 2 i 
+        Reg r -> replicate 2 (Reg r)
 
-
+    shifts n = map Imm 
+        . (\(s:ss) -> s : map (0xff .&.) ss)
+        . reverse . take n . iterate (`shift` (-8))
 

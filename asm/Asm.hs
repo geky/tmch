@@ -33,7 +33,9 @@ asmIns l pc = \case
     Label _     -> ok []
     Byte b      -> u8 b
     String s    -> concat <$> mapM (u8 . ord) s
-    Ins op args -> ins pc op =<< mapM (asmArg l) args
+    Ins op args -> do
+        args <- mapM (asmArg l) args
+        ins op args pc
         
 asmLabel :: [(Label, Int)] -> Label -> Result String Int
 asmLabel ls l = case lookup l ls of
