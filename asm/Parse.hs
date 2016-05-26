@@ -10,10 +10,19 @@ import Result
 import Pos
 
 
+type Label = String
+
 data Token
     = Label String
-    | Pseudo String [Either String Int]
-    | Ins String [Either String Int]
+    | Pseudo String [TokenArg]
+    | Ins String [TokenArg]
+  deriving Show
+
+data TokenArg
+    = Symbol String
+    | Literal Int
+    | Add TokenArg TokenArg
+    | Sub TokenArg TokenArg
   deriving Show
 
 
@@ -78,16 +87,25 @@ label :: Rule Char Token
 label = try (Label <$> symbol <* match ':' <* ws)
 
 op :: Rule Char Token
-op = op <* ws <*> delimited (arg <* ws) (match ',' <* ws)
+op = op <* ws <*> (concat <$> delimited (arg <* ws) (match ',' <* ws))
   where 
     op = rule $ \case
         '.':_ -> Pseudo <$ match '.' <*> symbol
         _     -> Ins <$> symbol
-    arg = rule $ \case
-        c:_ | isSymbolPrefix c -> Left <$> symbol
-        c:_ | isDigit c        -> Right <$> num
-        _                      -> reject
-      where isSymbolPrefix c = isAlpha c || c == '_'
+
+arg :: Rule Char [TokenArg]
+arg = rule $ \case
+    c:_ | isSymbolPrefix c -> pure . Symbol <$> symbol
+    c:_ | isDigit c        -> pure . Literal <$> num
+    c:_ | elem c "\"\'"    -> map (Literal . ord) <$> string c
+    '+':_                  -> match '+' *> ws *> arg >>= \case
+        [a] -> pure [Add (Literal 0) a]
+        _   -> reject
+    '-':_                  -> match '-' *> ws *> arg >>= \case
+        [a] -> pure [Sub (Literal 0) a]
+        _   -> reject
+    _                      -> reject
+  where isSymbolPrefix c = isAlpha c || c == '_'
 
 term :: Rule Char ()
 term = void $ optional comment *> match '\n'

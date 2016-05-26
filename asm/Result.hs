@@ -66,10 +66,7 @@ instance Alternative (Result e) where
     a <|> b = case a of
         Ok a         -> Ok a
         Warning es a -> Warning es a
-        Error es     -> case b of
-            Ok b         -> Warning es b
-            Warning ez b -> Warning (es++ez) b
-            Error ez     -> Error (es++ez)
+        Error _      -> b
 
 instance Monad (Result e) where
     return = Ok

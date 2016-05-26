@@ -3,7 +3,6 @@ module Asm where
 import Prelude hiding (error)
 import Data.Word
 import Data.Maybe
-import Data.Bifunctor
 import Control.Applicative
 import Control.Monad
 import Parse
@@ -13,54 +12,68 @@ import Encode
 import Mem
 
 
-type Label = String
+asmImm :: (Label -> Result String Int) -> TokenArg -> Result String Int
+asmImm l arg = asmArg l arg >>= \case
+    Imm i -> ok i
+    Reg r -> error ("invalid use of register \"" ++ show r ++ "\"")
 
+asmReg :: (Label -> Result String Int) -> TokenArg -> Result String Reg
+asmReg l arg = asmArg l arg >>= \case
+    Reg r -> ok r
+    Imm i -> error ("invalid use of immediate \"" ++ show i ++ "\"")
 
-asmArg
-    :: (Label -> Result String Int)
-    -> Either String Int -> Result String Arg
+asmArg :: (Label -> Result String Int) -> TokenArg -> Result String Arg
 asmArg l arg = case arg of
-    Left r  -> case reg r of
+    Symbol r -> case reg r of
         Error _ -> Imm <$> l r
         r       -> Reg <$> r
-    Right i -> Imm <$> ok i
+    Literal a -> Imm <$> ok a
+    Add a b   -> Imm <$> liftA2 (+) (asmImm l a) (asmImm l b)
+    Sub a b   -> Imm <$> liftA2 (-) (asmImm l a) (asmImm l b)
 
-asmIns
-    :: (Label -> Result String Int)
-    -> Int -> Token -> Result String [Word8]
+asmIns :: (Label -> Result String Int) -> Int -> Token -> Result String [Word8]
 asmIns l pc = \case
-    Pseudo "byte" [Right i] -> u8 i
-    Pseudo op _ -> error ("unknown pseudo op \"" ++ op ++ "\"")
+    Pseudo "byte" is -> concat <$> mapM (u8 <=< asmImm l) is
+    Pseudo op _ -> error ("unknown pseudo-op \"" ++ op ++ "\"")
     Label _     -> ok []
     Ins op args -> do
         args <- mapM (asmArg l) args
         ins op args pc
-        
+
 asmLabel :: [(Label, Int)] -> Label -> Result String Int
 asmLabel ls l = case lookup l ls of
     Just offset -> ok offset
     _           -> error ("unknown label \"" ++ l ++ "\"")
 
-address :: Int -> [Token] -> [(Int, Token)]
-address pc = \case
-    (Pseudo "org" [Right org]:ts) -> address org ts
-    (t:ts) -> (pc, t) : address (pc + length ds) ts
-      where ds = force (asmIns (const (ok pc)) pc t <|> pure [])
-    _  -> []
 
-labels :: [Token] -> [(Label, Int)]
-labels ts = mapMaybe label (address 0 ts)
+address :: Int -> [(Pos, Token)] -> Result Msg [(Int, (Pos, Token))]
+address pc = \case
+    ((p, Pseudo "org" [org]):ts) -> do
+        pc <- resultMsg p $ asmImm lerror org
+        address pc ts
+    ((p, t):ts) -> do
+        ds <- resultMsg p
+            $   asmIns (\_ -> ok 0) pc t
+            <|> asmIns (\_ -> ok pc) pc t
+            <|> pure []
+        ((pc, (p, t)):) <$> address (pc + length ds) ts
+    _ -> okMsg []
+  where lerror l = error ("invalid use of label \"" ++ l ++ "\"")
+
+labels :: [(Pos, Token)] -> [(Label, Int)]
+labels ts = mapMaybe label (force (address 0 ts <|> pure []))
   where
     label = \case
-        (off, Label l) -> Just (l, off)
-        _              -> Nothing
+        (off, (_, Label l)) -> Just (l, off)
+        _                   -> Nothing
 
 assemble :: [(Pos, Token)] -> Result Msg Mem8
-assemble ts
-    = fmap (foldl merge zeros)
-    $ uncurry (zipWithM resultMsg)
-    $ second (map (\(pc, t) -> mem pc <$> asmIns (asmLabel ls) pc t))
-    $ second (address 0)
-    $ unzip ts
+assemble ts = do
+    let ls = labels ts
+    as <- address 0 ts
+    es <- mapM (asm ls) as
+    return $ foldl merge zeros es
   where
-    ls = labels (map snd ts)
+    asm ls (pc, (p, t)) = resultMsg p $ do
+        ds <- asmIns (asmLabel ls) pc t
+        return $ mem pc ds
