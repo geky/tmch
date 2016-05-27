@@ -33,7 +33,8 @@ asmArg l arg = case arg of
 
 asmIns :: (Label -> Result String Int) -> Int -> Token -> Result String [Word8]
 asmIns l pc = \case
-    Pseudo "byte" is -> concat <$> mapM (u8 <=< asmImm l) is
+    Pseudo "byte" is -> concat <$> mapM (byte <=< asmImm l) is
+    Pseudo "word" is -> concat <$> mapM (word <=< asmImm l) is
     Pseudo op _ -> error ("unknown pseudo-op \"" ++ op ++ "\"")
     Label _     -> ok []
     Ins op args -> do
@@ -51,6 +52,7 @@ address pc = \case
     ((p, Pseudo "org" [org]):ts) -> do
         pc <- resultMsg p $ asmImm lerror org
         address pc ts
+      where lerror l = error ("invalid use of label \"" ++ l ++ "\"")
     ((p, t):ts) -> do
         ds <- resultMsg p
             $   asmIns (\_ -> ok 0) pc t
@@ -58,7 +60,6 @@ address pc = \case
             <|> pure []
         ((pc, (p, t)):) <$> address (pc + length ds) ts
     _ -> okMsg []
-  where lerror l = error ("invalid use of label \"" ++ l ++ "\"")
 
 labels :: [(Pos, Token)] -> [(Label, Int)]
 labels ts = mapMaybe label (force (address 0 ts <|> pure []))

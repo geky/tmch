@@ -1,10 +1,10 @@
 module Encode where
 
 import Prelude hiding (error)
-import Data.Int
 import Data.Word
 import Data.Bits
 import Control.Applicative
+import Control.Monad
 import Result
 
 
@@ -33,21 +33,22 @@ dst = (`shift` 2) . fromIntegral . fromEnum
 src :: Reg -> Word8
 src = fromIntegral . fromEnum
 
-i8 :: Int -> Result String [Word8]
-i8 i
-  | i >= min && i <= max = ok [fromIntegral i]
-  | otherwise = error ("value out of range \"" ++ show i ++ "\"")
-  where
-    min = fromIntegral (minBound :: Int8)
-    max = fromIntegral (maxBound :: Int8)
+bytes :: Int -> Int -> Result e [Word8]
+bytes n = ok
+    . map fromIntegral
+    . reverse 
+    . take n
+    . iterate (`shift` (-8))
 
-u8 :: Int -> Result String [Word8]
-u8 i
-  | i >= min && i <= max = ok [fromIntegral i]
-  | otherwise = error ("value out of range \"" ++ show i ++ "\"")
-  where
-    min = fromIntegral (minBound :: Word8)
-    max = fromIntegral (maxBound :: Word8)
+word :: Int -> Result String [Word8]
+word i
+    | i >= -0x8000 && i <= 0xffff = bytes 2 i
+    | otherwise = error ("value out of range \"" ++ show i ++ "\"")
+
+byte :: Int -> Result String [Word8]
+byte i
+    | i >= -0x80 && i <= 0xff = bytes 1 i
+    | otherwise = error ("value out of range \"" ++ show i ++ "\"")
 
 reg :: String -> Result String Reg
 reg = \case
@@ -85,41 +86,41 @@ ins op args pc = case (op, args) of
     ("sub",  [Reg rd, Reg ra]) -> ok [0xe0 .|. dst rd .|. src ra]
     ("subi", [Reg rd, Reg ra]) -> ok [0xf0 .|. dst rd .|. src ra]
 
-    ("mv",  [rd, Imm i]) -> comp pc [ins "mvi"  [rd, Reg PC], const (u8 i)]
-    ("st",  [rd, Imm i]) -> comp pc [ins "sti"  [rd, Reg PC], const (u8 i)]
-    ("cz",  [rd, Imm i]) -> comp pc [ins "czi"  [rd, Reg PC], const (i8 i)]
-    ("cnz", [rd, Imm i]) -> comp pc [ins "cnzi" [rd, Reg PC], const (i8 i)]
-    ("and", [rd, Imm i]) -> comp pc [ins "andi" [rd, Reg PC], const (u8 i)]
-    ("xor", [rd, Imm i]) -> comp pc [ins "xori" [rd, Reg PC], const (u8 i)]
-    ("add", [rd, Imm i]) -> comp pc [ins "addi" [rd, Reg PC], const (i8 i)]
-    ("sub", [rd, Imm i]) -> comp pc [ins "subi" [rd, Reg PC], const (i8 i)]
+    ("mv",  [rd, Imm i]) -> comp pc [ins "mvi"  [rd, Reg PC], const (byte i)]
+    ("st",  [rd, Imm i]) -> comp pc [ins "sti"  [rd, Reg PC], const (byte i)]
+    ("cz",  [rd, Imm i]) -> comp pc [ins "czi"  [rd, Reg PC], const (byte i)]
+    ("cnz", [rd, Imm i]) -> comp pc [ins "cnzi" [rd, Reg PC], const (byte i)]
+    ("and", [rd, Imm i]) -> comp pc [ins "andi" [rd, Reg PC], const (byte i)]
+    ("xor", [rd, Imm i]) -> comp pc [ins "xori" [rd, Reg PC], const (byte i)]
+    ("add", [rd, Imm i]) -> comp pc [ins "addi" [rd, Reg PC], const (byte i)]
+    ("sub", [rd, Imm i]) -> comp pc [ins "subi" [rd, Reg PC], const (byte i)]
 
-    ("mvw",  [rd, Imm i]) -> word pc (\i -> ins "mv"  [rd, i]) (Imm i)
-    ("stw",  [rd, Imm i]) -> word pc (\i -> ins "st"  [rd, i]) (Imm i)
-    ("mviw", [rd, Reg r]) -> word pc (\r -> ins "mvi" [rd, r]) (Reg r)
-    ("ldw",  [rd, Reg r]) -> word pc (\r -> ins "ld"  [rd, r]) (Reg r)
-    ("stw",  [rd, Reg r]) -> word pc (\r -> ins "st"  [rd, r]) (Reg r)
-    ("stiw", [rd, Reg r]) -> word pc (\r -> ins "sti" [rd, r]) (Reg r)
+    ("mvw",  [rd, Imm i]) -> wordi pc (\i -> ins "mv"  [rd, i]) i
+    ("stw",  [rd, Imm i]) -> wordi pc (\i -> ins "st"  [rd, i]) i
+    ("mviw", [rd, Reg r]) -> wordr pc (\r -> ins "mvi" [rd, r]) r
+    ("ldw",  [rd, Reg r]) -> wordr pc (\r -> ins "ld"  [rd, r]) r
+    ("stw",  [rd, Reg r]) -> wordr pc (\r -> ins "st"  [rd, r]) r
+    ("stiw", [rd, Reg r]) -> wordr pc (\r -> ins "sti" [rd, r]) r
 
     ("push",  [r]) -> ins "st"  [Reg SP, r] pc
     ("pop",   [r]) -> ins "ld"  [r, Reg SP] pc
     ("pushw", [r]) -> ins "stw" [Reg SP, r] pc
     ("popw",  [r]) -> ins "ldw" [r, Reg SP] pc
 
-    ("b",   [Imm i]) -> ins "sub" [Reg PC, Imm (negate (i-(pc+2)))] pc
-    ("bz",  [Imm i]) -> ins "cz"  [Reg PC, Imm (negate (i-(pc+2)))] pc
-    ("bnz", [Imm i]) -> ins "cnz" [Reg PC, Imm (negate (i-(pc+2)))] pc
+    ("b",   [Imm i]) -> branch pc (\i -> ins "sub" [Reg PC, Imm i]) i
+    ("bz",  [Imm i]) -> branch pc (\i -> ins "cz"  [Reg PC, Imm i]) i
+    ("bnz", [Imm i]) -> branch pc (\i -> ins "cnz" [Reg PC, Imm i]) i
 
     ("call", [Reg A]) -> comp pc
         [ ins "mv" [Reg B, Reg PC]
         , ins "mv" [Reg PC, Reg A]
         ]
-    ("call", [r]) -> comp pc
-        [ ins "mv" [Reg A, r]
+    ("call", [Reg r]) -> comp pc
+        [ ins "mv" [Reg A, Reg r]
         , ins "call" [Reg A]
         ]
-    ("callw", [r]) -> comp pc
-        [ ins "mvw" [Reg A, r]
+    ("call", [Imm i]) -> comp pc
+        [ ins "mvw" [Reg A, Imm i]
         , ins "call" [Reg A]
         ]
     ("ret", []) -> comp pc
@@ -128,7 +129,7 @@ ins op args pc = case (op, args) of
         ]
 
     ("nop",  []) -> ins "mv" [Reg A, Reg A] pc
-    ("halt", []) -> ins "sub" [Reg PC, Imm (-2)] pc
+    ("halt", []) -> ins "sub" [Reg PC, Imm 2] pc
     ("swi",  [Imm i]) -> ins "st" [Reg PC, Imm i] pc
 
     (op, _) -> error ("invalid instruction \"" ++ op ++ "\"")
@@ -137,11 +138,11 @@ ins op args pc = case (op, args) of
         f:fs -> liftA2 (++) (f pc) (comp (pc + length (f pc)) fs)
         _    -> pure []
 
-    word pc f = comp pc . map f . \case
-        Imm i -> shifts 2 i 
-        Reg r -> replicate 2 (Reg r)
+    wordi pc f = comp pc . map (f . Imm . fromIntegral) <=< word
+    wordr pc f = comp pc . map (f . Reg) . replicate 2
 
-    shifts n = map Imm 
-        . (\(s:ss) -> s : map (0xff .&.) ss)
-        . reverse . take n . iterate (`shift` (-8))
+    branch pc f b
+        | i >= -0x80 && i <= 0x7f = f i pc
+        | otherwise = error ("branch out of range \"" ++ show (-i) ++ "\"")
+        where i = negate (b-(pc+2))
 

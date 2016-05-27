@@ -19,5 +19,6 @@ main = do
             fdat <- readFile file
             ts <- checkMsg $ parse file fdat
             --putStr (show ts)
+            --putStr (show (labels ts))
             result <- checkMsg $ assemble ts
             putStr (toHex result)

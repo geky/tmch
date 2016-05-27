@@ -94,18 +94,36 @@ op = op <* ws <*> (concat <$> delimited (arg <* ws) (match ',' <* ws))
         _     -> Ins <$> symbol
 
 arg :: Rule Char [TokenArg]
-arg = rule $ \case
-    c:_ | isSymbolPrefix c -> pure . Symbol <$> symbol
-    c:_ | isDigit c        -> pure . Literal <$> num
-    c:_ | elem c "\"\'"    -> map (Literal . ord) <$> string c
-    '+':_                  -> match '+' *> ws *> arg >>= \case
-        [a] -> pure [Add (Literal 0) a]
-        _   -> reject
-    '-':_                  -> match '-' *> ws *> arg >>= \case
-        [a] -> pure [Sub (Literal 0) a]
-        _   -> reject
-    _                      -> reject
-  where isSymbolPrefix c = isAlpha c || c == '_'
+arg = suffixM prearg postarg
+  where
+    prearg = rule $ \case
+        '(':_                  -> match '(' *> ws *> arg <* match ')' <* ws
+        c:_ | isSymbolPrefix c -> pure . Symbol <$> symbol
+        c:_ | isDigit c        -> pure . Literal <$> num
+        c:_ | elem c "\"\'"    -> map (Literal . ord) <$> string c
+        '+':_                  -> do
+            match '+' <* ws
+            [a] <- arg
+            return [Add (Literal 0) a]
+        '-':_                  -> do
+            match '-' <* ws
+            [a] <- arg
+            return [Sub (Literal 0) a]
+        _                      -> reject
+      where isSymbolPrefix c = isAlpha c || c == '_'
+
+    postarg a = rule $ \case
+        '+':_ -> do
+            [a] <- pure a
+            match '+' <* ws
+            [b] <- arg
+            return [Add a b]
+        '-':_ -> do
+            [a] <- pure a
+            match '-' <* ws
+            [b] <- arg
+            return [Sub a b]
+        _     -> reject
 
 term :: Rule Char ()
 term = void $ optional comment *> match '\n'
