@@ -95,12 +95,11 @@ ins op args pc = case (op, args) of
     ("add", [rd, Imm i]) -> comp pc [ins "addi" [rd, Reg PC], const (byte i)]
     ("sub", [rd, Imm i]) -> comp pc [ins "subi" [rd, Reg PC], const (byte i)]
 
-    ("mvw",  [rd, Imm i]) -> wordi pc (\i -> ins "mv"  [rd, i]) i
-    ("stw",  [rd, Imm i]) -> wordi pc (\i -> ins "st"  [rd, i]) i
-    ("mviw", [rd, Reg r]) -> wordr pc (\r -> ins "mvi" [rd, r]) r
-    ("ldw",  [rd, Reg r]) -> wordr pc (\r -> ins "ld"  [rd, r]) r
-    ("stw",  [rd, Reg r]) -> wordr pc (\r -> ins "st"  [rd, r]) r
-    ("stiw", [rd, Reg r]) -> wordr pc (\r -> ins "sti" [rd, r]) r
+    ("mvw",  [rd, Imm i]) -> wordi pc id      (\i -> ins "mv"  [rd, i]) i
+    ("stw",  [rd, Imm i]) -> wordi pc reverse (\i -> ins "st"  [rd, i]) i
+    ("mviw", [rd, Reg r]) -> wordr pc id      (\r -> ins "mvi" [rd, r]) r
+    ("ldw",  [rd, Reg r]) -> wordr pc id      (\r -> ins "ld"  [rd, r]) r
+    ("stw",  [rd, Reg r]) -> wordr pc id      (\r -> ins "st"  [rd, r]) r
 
     ("push",  [r]) -> ins "st"  [Reg SP, r] pc
     ("pop",   [r]) -> ins "ld"  [r, Reg SP] pc
@@ -138,8 +137,8 @@ ins op args pc = case (op, args) of
         f:fs -> liftA2 (++) (f pc) (comp (pc + length (f pc)) fs)
         _    -> pure []
 
-    wordi pc f = comp pc . map (f . Imm . fromIntegral) <=< word
-    wordr pc f = comp pc . map (f . Reg) . replicate 2
+    wordi pc r f = comp pc . r . map (f . Imm . fromIntegral) <=< word
+    wordr pc r f = comp pc . r . map (f . Reg) . replicate 2
 
     branch pc f b
         | i >= -0x80 && i <= 0x7f = f i pc

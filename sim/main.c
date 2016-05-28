@@ -23,13 +23,13 @@ int main() {
 
     while (!tmch_halted(&tm)) {
         tmch_step(&tm);
-//        printf("\r[%03x %03x %03x %03x]",
-//            tm.regs[0], tm.regs[1], tm.regs[2], tm.regs[3]);
-//        fflush(stdout);
+        //printf("\r[%03x %03x %03x %03x]",
+        //    tm.regs[0], tm.regs[1], tm.regs[2], tm.regs[3]);
+        //fflush(stdout);
     }
 
-//    printf("\n");
-//    mem_dump(&tm.mem, stdout);
-//    printf("\n");
+    //printf("\n");
+    //mem_dump(&tm.mem, stdout);
+    //printf("\n");
     tmch_destroy(&tm);
 }
