@@ -16,8 +16,8 @@ void tmch_destroy(struct tmch *tmch) {
 }
 
 bool tmch_halted(struct tmch *tmch) {
-    return (mem_load(&tmch->mem, tmch->regs[3]) == 0xff &&
-            mem_load(&tmch->mem, mask(tmch, tmch->regs[3]+1)) == 0x02);
+    return (mem_read(&tmch->mem, tmch->regs[3]) == 0xff &&
+            mem_read(&tmch->mem, mask(tmch, tmch->regs[3]+1)) == 0x02);
 }
 
 enum tmch_ops {
@@ -34,7 +34,7 @@ enum tmch_ops {
 };
 
 void tmch_step(struct tmch *tmch) {
-    uint8_t ins = mem_load(&tmch->mem, tmch->regs[3]);
+    uint8_t ins = mem_read(&tmch->mem, tmch->regs[3]);
     tmch->regs[3] = mask(tmch, tmch->regs[3]+1);
 
     uint8_t op = (0xf0 & ins) >> 4;
@@ -47,22 +47,22 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_MV | 1: {
-            uint8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            uint8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             tmch->regs[rd] = mask(tmch, (tmch->regs[rd]<<8) | t);
         } break;
 
         case OP_ST | 0: {
             tmch->regs[rd] = mask(tmch, tmch->regs[rd]-1);
-            mem_store(&tmch->mem, tmch->regs[rd], tmch->regs[ra]);
+            mem_write(&tmch->mem, tmch->regs[rd], tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra] >> 8);
         } break;
 
         case OP_ST | 1: {
-            uint8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            uint8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             tmch->regs[rd] = mask(tmch, tmch->regs[rd]-1);
-            mem_store(&tmch->mem, tmch->regs[rd], t);
+            mem_write(&tmch->mem, tmch->regs[rd], t);
         } break;
 
         case OP_CZ | 0: {
@@ -73,7 +73,7 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_CZ | 1: {
-            int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            int8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             if (!tmch->regs[0]) {
                 tmch->regs[rd] = mask(tmch, tmch->regs[rd] - t);
@@ -88,7 +88,7 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_CNZ | 1: {
-            int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            int8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             if (tmch->regs[0]) {
                 tmch->regs[rd] = mask(tmch, tmch->regs[rd] - t);
@@ -101,7 +101,7 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_AND | 1: {
-            uint8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            uint8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             tmch->regs[rd] = tmch->regs[rd] & (((unsigned)-1 << 8) | t);
         } break;
@@ -112,7 +112,7 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_XOR | 1: {
-            uint8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            uint8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             tmch->regs[rd] = tmch->regs[rd] ^ t;
         } break;
@@ -123,7 +123,7 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_ADD | 1: {
-            int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            int8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             tmch->regs[rd] = mask(tmch, tmch->regs[rd] + t);
         } break;
@@ -134,7 +134,7 @@ void tmch_step(struct tmch *tmch) {
         } break;
 
         case OP_SUB | 1: {
-            int8_t t = mem_load(&tmch->mem, tmch->regs[ra]);
+            int8_t t = mem_read(&tmch->mem, tmch->regs[ra]);
             tmch->regs[ra] = mask(tmch, tmch->regs[ra]+1);
             tmch->regs[rd] = mask(tmch, tmch->regs[rd] - t);
         } break;
