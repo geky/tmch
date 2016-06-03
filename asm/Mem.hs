@@ -1,15 +1,20 @@
 module Mem where
 
-import Data.Ix
 import Data.Array.Unboxed hiding ((!), (//), assocs)
-import qualified Data.Array.Unboxed as Array
+import qualified Data.Array.IArray as Array
+
+import Control.Arrow
 import Data.Char
 import Data.List
 import Data.Word
+import Data.Bits
 
 
 -- Mem type --
-data Mem a = Mem (UArray Int a) | NoMem
+data Mem a
+    = IndirectMem Int (Array Int (Mem a)) 
+    | DirectMem (UArray Int a)
+    | NoMem
 type Dat d = (Integral d, IArray UArray d)
 
 type Mem8 = Mem Word8
@@ -19,56 +24,57 @@ type Mem64 = Mem Word64
 
 
 mem :: Dat d => Int -> [d] -> Mem d
-mem offset dat = Mem $ listArray (offset, offset+length dat-1) dat
+mem off dat = NoMem // zip [off..] dat
 
-zeros :: Dat d => Mem d
+zeros :: Mem d
 zeros = NoMem
 
+hi :: Int -> Int -> Int
+hi n i = shift i (-n)
+
+lo :: Int -> Int -> Int
+lo n i = i - shift (hi n i) n
+
 (!) :: Dat d => Mem d -> Int -> d
-(!) m i = case m of 
-    Mem a | inRange (bounds a) i -> a Array.! i
-    _                            -> 0
+(!) m i = case m of
+    IndirectMem n a | inmem n i -> (a Array.! hi n i) ! lo n i
+    DirectMem a     | inmem 0 i -> a Array.! i
+    _                           -> 0
+  where inmem n i = hi n i < 0x100
 
 (//) :: Dat d => Mem d -> [(Int, d)] -> Mem d
-(//) m = \case
-    [] -> m
-    us -> Mem $ case m of
-        Mem a | all (inRange (bounds a)) os -> a Array.// us
-        Mem a -> listArray (lower, upper) (repeat 0)
-            Array.// Array.assocs a Array.// us
-          where
-            lower = minimum (fst (bounds a) : os)
-            upper = maximum (snd (bounds a) : os)
-        _ -> listArray (lower, upper) (repeat 0)
-            Array.// us
-          where
-            lower = minimum os
-            upper = maximum os
+(//) m us = case m of
+    IndirectMem n a | all (inmem n . fst) us -> IndirectMem n (a Array.// us')
       where
-        os = map fst us
+        us' = map (\(i,us) -> (i, (a Array.! i) // map (first (lo n)) us))
+            $ filter (not . null . snd)
+            $ map (\i -> (i, filter ((==i) . hi n . fst) us)) [0..0xff]
+    DirectMem a     | all (inmem 0 . fst) us -> DirectMem (a Array.// us)
+    NoMem           | null us                -> NoMem
+
+    IndirectMem n _ -> IndirectMem (n+8) (block NoMem m) // us
+    DirectMem _     -> IndirectMem 8     (block NoMem m) // us
+    NoMem           -> DirectMem         (block 0 0)     // us
+  where
+    inmem n i = hi n i < 0x100
+
+    block :: (IArray a e) => e -> e -> a Int e
+    block z e = listArray (0,0xff) (repeat z) Array.// [(0, e)]
 
 assocs :: Dat d => Mem d -> [(Int, d)]
 assocs = \case
-    Mem a -> filter (\(_,d) -> d /= 0) $ Array.assocs a
-    _     -> []
-
-chunk :: Dat d => Mem d -> Int -> Int -> [d]
-chunk m off end = take (end - off) $ case m of
-    Mem a -> take (lower - off) (repeat 0)
-        ++ drop (off - lower) (elems a)
-        ++ repeat 0
-      where lower = fst (bounds a)
-    _     -> repeat 0
+    IndirectMem n a -> concat
+        $ map (uncurry (\i -> map (first (.|. (shift i n)))))
+        $ map (second assocs)
+        $ Array.assocs a
+    DirectMem a     -> filter ((/= 0) . snd) $ Array.assocs a
+    _               -> []
 
 merge :: Dat d => Mem d -> Mem d -> Mem d
 merge a b = a // assocs b
 
 
--- Representation --
-ns :: Int -> [a] -> [[a]]
-ns _ [] = []
-ns n s  = take n s : ns n (drop n s)
-
+-- Hex format --
 fromHexString :: Dat d => String -> d
 fromHexString = foldl (\a b -> a*16 + b) 0
     . map (fromIntegral . digitToInt)
@@ -89,6 +95,10 @@ fromHexLine hex = zip [offset..] bytes
         $ drop 1 . dropWhile isHexDigit
         $ hex
 
+    ns n = \case
+        [] -> []
+        s  -> take n s : ns n (drop n s)
+
 fromHex :: Dat d => String -> Mem d
 fromHex = foldl (//) zeros . map fromHexLine . lines
 
@@ -105,7 +115,7 @@ toHexLine offset bytes
 toHex :: Dat d => Mem d -> String
 toHex a = unlines $ zipWith toHexLine offsets (map line offsets)
   where
-    line offset = chunk a offset (offset+16)
+    line offset = map (a !) [offset..offset+15]
     offsets = case map fst (assocs a) of
         [] -> []
         as -> [lower,lower+16..upper]
